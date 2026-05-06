@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Export Media</title>
+<style>
+  body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #FE3C72; color: #fff; }
+  button { background: #fff; color: #FE3C72; border: none; padding: 20px 40px; border-radius: 50px; font-size: 18px; font-weight: 800; cursor: pointer; margin: 20px; }
+  #log { background: rgba(0,0,0,0.3); padding: 20px; border-radius: 12px; max-width: 500px; width: 90%; font-size: 13px; line-height: 1.8; min-height: 100px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h2>📦 Экспорт загруженных файлов</h2>
+<button onclick="run()">СКАЧАТЬ ФАЙЛ С ДАННЫМИ</button>
+<div id="log">Нажми кнопку...</div>
+<script>
+async function run() {
+  const log = document.getElementById('log');
+  const out = {};
+  log.textContent = 'Открываю базу данных...\n';
+
+  try {
+    const ls = JSON.parse(localStorage.getItem('tinder_office_photos_v1') || '{}');
+    const lsKeys = Object.keys(ls);
+    if (lsKeys.length) {
+      for (const k of lsKeys) out['ls_' + k] = ls[k];
+      log.textContent += 'Карточки (localStorage): ' + lsKeys.length + ' шт.\n';
+    }
+  } catch(e) {}
+
+  try {
+    const db = await new Promise((res, rej) => {
+      const r = indexedDB.open('nvs_media_v1', 1);
+      r.onsuccess = e => res(e.target.result);
+      r.onerror = () => rej(r.error);
+    });
+    log.textContent += 'База открыта.\n';
+
+    const keys = await new Promise((res, rej) => {
+      const r = db.transaction('uploads','readonly').objectStore('uploads').getAllKeys();
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error);
+    });
+    log.textContent += 'Ключи: ' + keys.join(', ') + '\n';
+
+    for (const key of keys) {
+      const blob = await new Promise((res, rej) => {
+        const r = db.transaction('uploads','readonly').objectStore('uploads').get(key);
+        r.onsuccess = () => res(r.result);
+        r.onerror = () => rej(r.error);
+      });
+      const dataUrl = await new Promise(res => {
+        const fr = new FileReader();
+        fr.onload = e => res(e.target.result);
+        fr.readAsDataURL(blob);
+      });
+      out[key] = dataUrl;
+      const kb = Math.round(dataUrl.length / 1024);
+      log.textContent += key + ': ' + kb + ' KB\n';
+    }
+  } catch(e) {
+    log.textContent += 'IDB: ' + e.message + '\n';
+  }
+
+  const total = Math.round(JSON.stringify(out).length / 1024 / 1024 * 10) / 10;
+  log.textContent += '\nИТОГО: ' + total + ' MB, ключей: ' + Object.keys(out).length;
+
+  if (Object.keys(out).length === 0) {
+    log.textContent += '\n\nНичего не найдено. Убедись что открываешь этот файл на том же сайте и в том же браузере где загружала фото.';
+    return;
+  }
+
+  const blob = new Blob([JSON.stringify(out)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'nvs-media.json';
+  a.click();
+  log.textContent += '\n✅ Файл скачан! Отправь nvs-media.json в чат.';
+}
+</script>
+</body>
+</html>
